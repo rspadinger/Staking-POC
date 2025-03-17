@@ -1,0 +1,34 @@
+#select the mode to test, which can be property, assertion, overflow, exploration, optimization
+testMode: "property"
+
+cryticArgs: ["--solc-remaps", "@=node_modules/@"]
+
+#coverage controls coverage guided testing
+coverage: true
+
+#directory to save the corpus; by default is disabled
+corpusDir: "corpus"
+
+# list of file formats to save coverage reports in; default is all possible formats
+coverageFormats: ["txt"]
+
+# by default, blacklist methods in filterFunctions
+filterBlacklist: true
+
+# list of methods to filter
+filterFunctions: []
+
+#testLimit is the number of test sequences to run
+testLimit: 50000
+
+#seqLen defines how many transactions are in a test sequence
+seqLen: 100
+
+#stopOnFail makes echidna terminate as soon as any property fails and has been shrunk
+stopOnFail: false
+
+#estimateGas makes echidna perform analysis of maximum gas costs for functions (experimental)
+estimateGas: false
+
+#whether ot not to fuzz all contracts
+allContracts: false

@@ -1,0 +1,9 @@
+{
+    "solc_remaps": "@=node_modules/@",
+    "exclude_informational": false,
+    "exclude_low": false,
+    "exclude_medium": false,
+    "exclude_high": false,
+    "disable_color": false,
+    "filter_paths": "(node_modules/|scripts/|artifacts/)"
+}

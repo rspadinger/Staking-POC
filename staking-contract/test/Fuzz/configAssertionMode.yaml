@@ -1,0 +1,13 @@
+testMode: assertion
+
+# https://www.justinsilver.com/technology/blockchain/slither-echidna-remappings/
+cryticArgs: ["--solc-remaps", "@=node_modules/@ hardhat=node_modules/hardhat"]
+
+coverage: true
+coverageFormats: ["txt"]
+corpusDir: "corpus"
+testLimit: 100
+seqLen: 25
+# whitelist
+#filterBlacklist: false
+#filterFunctions: ["EchidnaAssertionTest.testAddTokens(uint256)"]
