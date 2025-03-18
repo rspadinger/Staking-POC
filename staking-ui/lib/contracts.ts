@@ -255,7 +255,7 @@ export const getTokenBalance = async (address: string): Promise<string> => {
 };
 
 /**
- * Get staked balance for a specific address
+ * Get staked balance for a specific address, returns as a formatted string
  */
 export const getStakedBalance = async (address: string): Promise<string> => {
   const contract = getStakingContract();
@@ -269,6 +269,19 @@ export const getStakedBalance = async (address: string): Promise<string> => {
   } catch (error) {
     console.error('Error getting staked balance:', error);
     throw error;
+  }
+};
+
+/**
+ * Get staked balance as a number for a specific address (for UI display)
+ */
+export const getStakedBalanceFormatted = async (address: string): Promise<number> => {
+  try {
+    const stakedBalance = await getStakedBalance(address);
+    return parseFloat(stakedBalance);
+  } catch (error) {
+    console.error('Error getting formatted staked balance:', error);
+    return 0;
   }
 };
 

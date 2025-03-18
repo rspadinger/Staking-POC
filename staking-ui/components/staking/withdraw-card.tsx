@@ -8,34 +8,45 @@ import { TokenLogo } from "@/components/staking/token-logo"
 import { LoadingSpinner } from "@/components/staking/loading-spinner"
 import { AlertCircle, Info } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { getTokenName, getTokenSymbol } from "@/lib/contracts"
+import { getTokenName, getTokenSymbol, withdrawTokens } from "@/lib/contracts"
+import { useStaking } from "@/lib/staking-context"
+import { useToast } from "@/hooks/use-toast"
 
 interface WithdrawCardProps {
   isWalletConnected: boolean
   tokenSymbol: string // Used as fallback
-  stakedBalance: number
+  stakedBalance: number // This is now used as a fallback value
   tokenPrice: number
   earlyWithdrawalPenalty: number
   stakingDuration: number
   timeStaked: number
+  account?: string // Optional connected account
 }
 
 export function WithdrawCard({
   isWalletConnected,
   tokenSymbol: fallbackSymbol,
-  stakedBalance,
+  stakedBalance: fallbackStakedBalance,
   tokenPrice,
   earlyWithdrawalPenalty,
   stakingDuration,
   timeStaked,
+  account,
 }: WithdrawCardProps) {
   const [amount, setAmount] = useState<string>("")
   const [isWithdrawing, setIsWithdrawing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
+  
+  // Use the staking context for real-time staked balance
+  const { stakedBalance: contextStakedBalance, refreshStakedBalance } = useStaking()
   
   // State for token information
   const [tokenName, setTokenName] = useState<string>("Loading...")
   const [tokenSymbol, setTokenSymbol] = useState<string>(fallbackSymbol)
+  
+  // Use either the context staked balance (real-time) or the fallback value
+  const stakedBalance = contextStakedBalance || fallbackStakedBalance
 
   // Fetch token information when component mounts
   useEffect(() => {
@@ -57,6 +68,13 @@ export function WithdrawCard({
 
     fetchTokenInfo();
   }, [fallbackSymbol]);
+  
+  // Refresh staked balance when the component mounts or account changes
+  useEffect(() => {
+    if (isWalletConnected && account) {
+      refreshStakedBalance(account);
+    }
+  }, [isWalletConnected, account, refreshStakedBalance]);
 
   const isEarlyWithdrawal = timeStaked < stakingDuration
   const penaltyAmount = isEarlyWithdrawal && amount ? Number.parseFloat(amount) * (earlyWithdrawalPenalty / 100) : 0
@@ -76,12 +94,50 @@ export function WithdrawCard({
     setError(null)
     setIsWithdrawing(true)
 
-    // Simulate withdrawal process
-    setTimeout(() => {
-      setIsWithdrawing(false)
-      setAmount("")
-      // Here you would update the staked balance
-    }, 2000)
+    try {
+      toast({
+        title: "Withdrawing tokens",
+        description: `Withdrawing ${amount} ${tokenSymbol}...`,
+      });
+      
+      const withdrawTx = await withdrawTokens(amount);
+      
+      toast({
+        title: "Withdrawal submitted",
+        description: "Please confirm the transaction in your wallet",
+      });
+      
+      await withdrawTx.wait();
+      
+      toast({
+        title: "Withdrawal successful",
+        description: `Successfully withdrew ${amount} ${tokenSymbol}`,
+        variant: "default",
+      });
+
+      // Refresh staked balance after withdrawal
+      if (account) {
+        await refreshStakedBalance(account);
+      }
+      
+      setAmount("");
+      setIsWithdrawing(false);
+    } catch (error: unknown) {
+      console.error("Error withdrawing tokens:", error);
+      
+      // More specific error messages
+      const errorObj = error as { reason?: string; message?: string };
+      const errorMessage = errorObj?.reason || errorObj?.message || "Transaction failed. Please try again.";
+      setError(errorMessage);
+      
+      toast({
+        title: "Transaction failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      
+      setIsWithdrawing(false);
+    }
   }
 
   const handleMaxAmount = () => {
@@ -149,7 +205,10 @@ export function WithdrawCard({
                 type="number"
                 placeholder="0.0"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  if (error) setError(null);
+                }}
                 className="bg-slate-900 border-slate-700"
                 disabled={!isWalletConnected || isWithdrawing || stakedBalance <= 0}
               />
@@ -178,7 +237,12 @@ export function WithdrawCard({
           )}
         </div>
       </CardContent>
-      <CardFooter>
+      <CardFooter className="flex flex-col gap-2">
+        {isWalletConnected && account && (
+          <div className="w-full text-center mb-2 text-sm">
+            Connected: {account.substring(0, 6)}...{account.substring(account.length - 4)}
+          </div>
+        )}
         <Button
           onClick={handleWithdraw}
           className="w-full bg-[#203152] hover:bg-[#203152]/90 text-white"

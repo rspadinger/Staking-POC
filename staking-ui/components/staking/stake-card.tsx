@@ -15,8 +15,10 @@ import {
   approveTokens, 
   stakeTokens,
   getTokenName,
-  getTokenSymbol 
+  getTokenSymbol
 } from "../../lib/contracts"
+import { useToast } from "@/hooks/use-toast"
+import { useStaking } from "@/lib/staking-context"
 
 interface StakeCardProps {
   tokenSymbol: string // Used as fallback
@@ -30,9 +32,11 @@ const useWallet = () => {
   const [account, setAccount] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [balance, setBalance] = useState("0");
+  const [isCheckingConnection, setIsCheckingConnection] = useState(true);
 
   const connect = async () => {
     try {
+      console.log("Manually connecting wallet...");
       const { account } = await connectWallet();
       setAccount(account);
       setIsConnected(true);
@@ -45,15 +49,54 @@ const useWallet = () => {
     }
   };
 
+  // Auto-connect if MetaMask is already connected
+  useEffect(() => {
+    const autoConnect = async () => {
+      setIsCheckingConnection(true);
+      if (hasEthereum()) {
+        try {
+          console.log("Checking for existing wallet connection...");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const accounts = await (window.ethereum as any).request({ method: 'eth_accounts' });
+          
+          if (accounts && accounts.length > 0) {
+            console.log("Found connected account:", accounts[0]);
+            setAccount(accounts[0]);
+            setIsConnected(true);
+            
+            // Get initial balance
+            const balance = await getTokenBalance(accounts[0]);
+            setBalance(balance);
+          } else {
+            console.log("No connected accounts found");
+            setIsConnected(false);
+            setAccount(null);
+          }
+        } catch (error) {
+          console.error("Error auto-connecting wallet:", error);
+        } finally {
+          setIsCheckingConnection(false);
+        }
+      } else {
+        console.log("Ethereum provider not detected");
+        setIsCheckingConnection(false);
+      }
+    };
+
+    autoConnect();
+  }, []);
+
   // Listen for account changes
   useEffect(() => {
     if (hasEthereum()) {
       const handleAccountsChanged = (accounts: string[]) => {
         if (accounts.length > 0) {
+          console.log("Account changed to:", accounts[0]);
           setAccount(accounts[0]);
           setIsConnected(true);
           getTokenBalance(accounts[0]).then(setBalance);
         } else {
+          console.log("Disconnected from wallet");
           setIsConnected(false);
           setAccount(null);
           setBalance("0");
@@ -62,12 +105,6 @@ const useWallet = () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window.ethereum as any).on('accountsChanged', handleAccountsChanged);
-      
-      // Check if already connected
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window.ethereum as any).request({ method: 'eth_accounts' })
-        .then(handleAccountsChanged)
-        .catch((err: Error) => console.error(err));
 
       return () => {
         if (hasEthereum()) {
@@ -78,7 +115,7 @@ const useWallet = () => {
     }
   }, []);
 
-  return { account, isConnected, balance, connect };
+  return { account, isConnected, isCheckingConnection, balance, connect };
 };
 
 export function StakeCard({
@@ -91,7 +128,9 @@ export function StakeCard({
   const [isApproving, setIsApproving] = useState(false)
   const [isStaking, setIsStaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { account, isConnected, balance, connect } = useWallet()
+  const { account, isConnected, isCheckingConnection, balance, connect } = useWallet()
+  const { toast } = useToast()
+  const { refreshStakedBalance } = useStaking() // Use the staking context
   
   // State for token information
   const [tokenName, setTokenName] = useState<string>("Loading...")
@@ -134,27 +173,78 @@ export function StakeCard({
     try {
       // First approve tokens
       setIsApproving(true)
+      toast({
+        title: "Approving tokens",
+        description: `Approving ${amount} ${tokenSymbol} for staking...`,
+      })
+      
       const approveTx = await approveTokens(amount)
+      toast({
+        title: "Approval submitted",
+        description: "Please confirm the transaction in your wallet",
+      })
+      
       await approveTx.wait()
+      toast({
+        title: "Approval successful",
+        description: `Successfully approved ${amount} ${tokenSymbol}`,
+      })
       setIsApproving(false)
       
       // Then stake tokens
       setIsStaking(true)
+      toast({
+        title: "Staking tokens",
+        description: `Staking ${amount} ${tokenSymbol}...`,
+      })
+      
       const stakeTx = await stakeTokens(amount)
+      toast({
+        title: "Staking submitted",
+        description: "Please confirm the transaction in your wallet",
+      })
+      
+      // Wait for the transaction to be confirmed
       await stakeTx.wait()
+      
+      // Success feedback
+      toast({
+        title: "Staking successful",
+        description: `Successfully staked ${amount} ${tokenSymbol}`,
+        variant: "default",
+      })
       
       // Update balance after staking
       if (account) {
-        // Refresh the balance but don't set it directly here
-        // as it's managed by the wallet hook
-        await getTokenBalance(account);
+        try {
+          // Refresh the wallet balance
+          const newBalance = await getTokenBalance(account);
+          console.log("Updated wallet balance after staking:", newBalance);
+          
+          // Refresh the staked balance using the context
+          await refreshStakedBalance(account);
+          
+        } catch (balanceError) {
+          console.error("Error updating balance after staking:", balanceError);
+        }
       }
       
       setAmount("")
       setIsStaking(false)
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error staking tokens:", error)
-      setError("Transaction failed. Please try again.")
+      
+      // More specific error messages
+      const errorObj = error as { reason?: string; message?: string }
+      const errorMessage = errorObj?.reason || errorObj?.message || "Transaction failed. Please try again."
+      setError(errorMessage)
+      
+      toast({
+        title: "Transaction failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+      
       setIsApproving(false)
       setIsStaking(false)
     }
@@ -196,7 +286,7 @@ export function StakeCard({
               </TooltipProvider>
             </p>
             <p className="text-sm text-muted-foreground">
-              Wallet Balance: {Number.parseFloat(balance).toFixed(4)} {tokenSymbol}
+              Wallet Balance: {Number.parseFloat(balance).toFixed(2)} {tokenSymbol}
             </p>
           </div>
         </div>
@@ -220,7 +310,11 @@ export function StakeCard({
               type="number"
               placeholder="0.0"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                setAmount(e.target.value)
+                // Clear error when user types
+                if (error) setError(null)
+              }}
               className="bg-slate-900 border-slate-700"
               disabled={!isConnected || isStaking || isApproving}
             />
@@ -233,7 +327,14 @@ export function StakeCard({
         </div>
       </CardContent>
       <CardFooter className="flex flex-col gap-2">
-        {!isConnected ? (
+        {isCheckingConnection ? (
+          <Button 
+            className="w-full bg-gray-600 hover:bg-gray-600 text-white cursor-wait" 
+            disabled={true}
+          >
+            <LoadingSpinner /> Checking wallet...
+          </Button>
+        ) : !isConnected ? (
           <Button
             onClick={connect}
             className="w-full bg-primary hover:bg-primary/90 text-white"
@@ -241,13 +342,18 @@ export function StakeCard({
             Connect Wallet
           </Button>
         ) : (
-          <Button
-            onClick={handleStake}
-            className="w-full bg-primary hover:bg-primary/90 text-white"
-            disabled={!isConnected || Number.parseFloat(balance) <= 0 || isStaking || isApproving}
-          >
-            {isApproving ? 'Approving...' : isStaking ? <LoadingSpinner /> : "Stake"}
-          </Button>
+          <>
+            <div className="w-full text-center mb-2 text-sm">
+              {account && `Connected: ${account.substring(0, 6)}...${account.substring(account.length - 4)}`}
+            </div>
+            <Button
+              onClick={handleStake}
+              className="w-full bg-primary hover:bg-primary/90 text-white"
+              disabled={!isConnected || Number.parseFloat(balance) <= 0 || isStaking || isApproving || !amount || Number.parseFloat(amount) <= 0}
+            >
+              {isApproving ? 'Approving...' : isStaking ? <LoadingSpinner /> : "Stake"}
+            </Button>
+          </>
         )}
       </CardFooter>
     </Card>
