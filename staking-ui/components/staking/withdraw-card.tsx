@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,10 +8,11 @@ import { TokenLogo } from "@/components/staking/token-logo"
 import { LoadingSpinner } from "@/components/staking/loading-spinner"
 import { AlertCircle, Info } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { getTokenName, getTokenSymbol } from "@/lib/contracts"
 
 interface WithdrawCardProps {
   isWalletConnected: boolean
-  tokenSymbol: string
+  tokenSymbol: string // Used as fallback
   stakedBalance: number
   tokenPrice: number
   earlyWithdrawalPenalty: number
@@ -21,7 +22,7 @@ interface WithdrawCardProps {
 
 export function WithdrawCard({
   isWalletConnected,
-  tokenSymbol,
+  tokenSymbol: fallbackSymbol,
   stakedBalance,
   tokenPrice,
   earlyWithdrawalPenalty,
@@ -31,6 +32,31 @@ export function WithdrawCard({
   const [amount, setAmount] = useState<string>("")
   const [isWithdrawing, setIsWithdrawing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  
+  // State for token information
+  const [tokenName, setTokenName] = useState<string>("Loading...")
+  const [tokenSymbol, setTokenSymbol] = useState<string>(fallbackSymbol)
+
+  // Fetch token information when component mounts
+  useEffect(() => {
+    const fetchTokenInfo = async () => {
+      try {
+        const [name, symbol] = await Promise.all([
+          getTokenName(),
+          getTokenSymbol()
+        ]);
+        
+        setTokenName(name);
+        setTokenSymbol(symbol || fallbackSymbol);
+      } catch (error) {
+        console.error("Error fetching token information:", error);
+        // Fall back to prop values if fetching fails
+        setTokenSymbol(fallbackSymbol);
+      }
+    };
+
+    fetchTokenInfo();
+  }, [fallbackSymbol]);
 
   const isEarlyWithdrawal = timeStaked < stakingDuration
   const penaltyAmount = isEarlyWithdrawal && amount ? Number.parseFloat(amount) * (earlyWithdrawalPenalty / 100) : 0
@@ -72,7 +98,7 @@ export function WithdrawCard({
           <div className="flex items-center">
             <TokenLogo symbol={tokenSymbol} />
             <div className="ml-3">
-              <p className="font-medium">{tokenSymbol}</p>
+              <p className="font-medium">{tokenName}</p>
               <p className="text-sm text-muted-foreground">${tokenPrice.toFixed(2)}</p>
             </div>
           </div>

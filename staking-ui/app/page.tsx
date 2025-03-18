@@ -3,17 +3,19 @@
 import { useState, useEffect } from "react"
 import { StakeCard } from "@/components/staking/stake-card"
 import { WithdrawCard } from "@/components/staking/withdraw-card"
+import { connectWallet, hasEthereum, getTokenName, getTokenSymbol } from "@/lib/contracts"
 
 export default function StakingPage() {
-  const [isWalletConnected, setIsWalletConnected] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [isWalletConnected, setIsWalletConnected] = useState(false)
+  const [tokenName, setTokenName] = useState<string>("Loading Token")
+  const [tokenSymbol, setTokenSymbol] = useState<string>("TOKEN")
 
   // Mock data - in a real app, this would come from your blockchain connection
   const tokenData = {
-    symbol: "TokenABC",
+    symbol: "TOKEN", // This will be replaced with actual symbol
     price: 1.25,
     apr: 12.5,
-    walletBalance: 100,
     stakedBalance: 50,
     totalStaked: 1250000,
     earlyWithdrawalPenalty: 3,
@@ -21,36 +23,50 @@ export default function StakingPage() {
     timeStaked: 15, // days
   }
 
+  // Fetch token information
+  useEffect(() => {
+    const fetchTokenInfo = async () => {
+      if (mounted) {
+        try {
+          const [name, symbol] = await Promise.all([
+            getTokenName(),
+            getTokenSymbol()
+          ]);
+          
+          setTokenName(name);
+          setTokenSymbol(symbol || tokenData.symbol);
+          console.log("Token info loaded:", { name, symbol });
+        } catch (error) {
+          console.error("Error fetching token information in page:", error);
+        }
+      }
+    };
+
+    fetchTokenInfo();
+  }, [mounted]);
+
+  // Check wallet connection status
+  useEffect(() => {
+    const checkWalletConnection = async () => {
+      if (hasEthereum()) {
+        try {
+          const { account } = await connectWallet();
+          setIsWalletConnected(!!account);
+        } catch (error) {
+          console.error("Failed to check wallet connection:", error);
+          setIsWalletConnected(false);
+        }
+      }
+    };
+
+    if (mounted) {
+      checkWalletConnection();
+    }
+  }, [mounted]);
+
   // Ensure we only render client-side components after hydration
   useEffect(() => {
     setMounted(true)
-
-    // Check if wallet is connected
-    const checkConnection = async () => {
-      if (typeof window !== "undefined" && typeof window.ethereum !== "undefined") {
-        try {
-          const accounts = await window.ethereum.request({ method: "eth_accounts" })
-          setIsWalletConnected(accounts.length > 0)
-        } catch (error) {
-          console.error("Error checking wallet connection", error)
-        }
-      }
-    }
-
-    checkConnection()
-
-    // Listen for account changes
-    if (typeof window !== "undefined" && typeof window.ethereum !== "undefined") {
-      window.ethereum.on("accountsChanged", (accounts: string[]) => {
-        setIsWalletConnected(accounts.length > 0)
-      })
-    }
-
-    return () => {
-      if (typeof window !== "undefined" && typeof window.ethereum !== "undefined") {
-        window.ethereum.removeListener("accountsChanged", () => {})
-      }
-    }
   }, [])
 
   if (!mounted) {
@@ -78,24 +94,22 @@ export default function StakingPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">Staking</h1>
           <p className="text-muted-foreground">
-            You can stake {tokenData.symbol} and earn rewards. A {tokenData.earlyWithdrawalPenalty}% penalty applies for
+            You can stake {tokenSymbol} ({tokenName}) and earn rewards. A {tokenData.earlyWithdrawalPenalty}% penalty applies for
             early withdrawals (before {tokenData.stakingDuration} days).
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <StakeCard
-            isWalletConnected={isWalletConnected}
-            tokenSymbol={tokenData.symbol}
+            tokenSymbol={tokenSymbol}
             apr={tokenData.apr}
-            walletBalance={tokenData.walletBalance}
             tokenPrice={tokenData.price}
             totalStaked={tokenData.totalStaked}
           />
 
           <WithdrawCard
             isWalletConnected={isWalletConnected}
-            tokenSymbol={tokenData.symbol}
+            tokenSymbol={tokenSymbol}
             stakedBalance={tokenData.stakedBalance}
             tokenPrice={tokenData.price}
             earlyWithdrawalPenalty={tokenData.earlyWithdrawalPenalty}

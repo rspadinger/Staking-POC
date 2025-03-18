@@ -8,45 +8,115 @@ import { TokenLogo } from "@/components/staking/token-logo"
 import { TooltipInfo } from "@/components/ui/tooltip-info"
 import { LoadingSpinner } from "@/components/staking/loading-spinner"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { getTokenBalance } from "@/lib/contracts"
-import { useAccount } from "wagmi"
+import { 
+  getTokenBalance, 
+  connectWallet, 
+  hasEthereum, 
+  approveTokens, 
+  stakeTokens,
+  getTokenName,
+  getTokenSymbol 
+} from "../../lib/contracts"
 
 interface StakeCardProps {
-  isWalletConnected: boolean
-  tokenSymbol: string
+  tokenSymbol: string // Used as fallback
   apr: number
   tokenPrice: number
   totalStaked: number
 }
 
+// Simple React hook for wallet connection
+const useWallet = () => {
+  const [account, setAccount] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [balance, setBalance] = useState("0");
+
+  const connect = async () => {
+    try {
+      const { account } = await connectWallet();
+      setAccount(account);
+      setIsConnected(true);
+      
+      // Get initial balance
+      const balance = await getTokenBalance(account);
+      setBalance(balance);
+    } catch (error) {
+      console.error("Failed to connect wallet", error);
+    }
+  };
+
+  // Listen for account changes
+  useEffect(() => {
+    if (hasEthereum()) {
+      const handleAccountsChanged = (accounts: string[]) => {
+        if (accounts.length > 0) {
+          setAccount(accounts[0]);
+          setIsConnected(true);
+          getTokenBalance(accounts[0]).then(setBalance);
+        } else {
+          setIsConnected(false);
+          setAccount(null);
+          setBalance("0");
+        }
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window.ethereum as any).on('accountsChanged', handleAccountsChanged);
+      
+      // Check if already connected
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window.ethereum as any).request({ method: 'eth_accounts' })
+        .then(handleAccountsChanged)
+        .catch((err: Error) => console.error(err));
+
+      return () => {
+        if (hasEthereum()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (window.ethereum as any).removeListener('accountsChanged', handleAccountsChanged);
+        }
+      };
+    }
+  }, []);
+
+  return { account, isConnected, balance, connect };
+};
+
 export function StakeCard({
-  isWalletConnected,
-  tokenSymbol,
+  tokenSymbol: fallbackSymbol,
   apr,
   tokenPrice,
   totalStaked,
 }: StakeCardProps) {
   const [amount, setAmount] = useState<string>("")
+  const [isApproving, setIsApproving] = useState(false)
   const [isStaking, setIsStaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [walletBalance, setWalletBalance] = useState<string>("0")
-  const { address } = useAccount()
+  const { account, isConnected, balance, connect } = useWallet()
+  
+  // State for token information
+  const [tokenName, setTokenName] = useState<string>("Loading...")
+  const [tokenSymbol, setTokenSymbol] = useState<string>(fallbackSymbol)
 
+  // Fetch token information when component mounts
   useEffect(() => {
-    const fetchBalance = async () => {
-      if (address && isWalletConnected) {
-        try {
-          const balance = await getTokenBalance(address)
-          setWalletBalance(balance)
-        } catch (error) {
-          console.error('Error fetching balance:', error)
-          setError('Failed to fetch wallet balance')
-        }
+    const fetchTokenInfo = async () => {
+      try {
+        const [name, symbol] = await Promise.all([
+          getTokenName(),
+          getTokenSymbol()
+        ]);
+        
+        setTokenName(name);
+        setTokenSymbol(symbol || fallbackSymbol);
+      } catch (error) {
+        console.error("Error fetching token information:", error);
+        // Fall back to prop values if fetching fails
+        setTokenSymbol(fallbackSymbol);
       }
-    }
+    };
 
-    fetchBalance()
-  }, [address, isWalletConnected])
+    fetchTokenInfo();
+  }, [fallbackSymbol]);
 
   const handleStake = async () => {
     if (!amount || Number.parseFloat(amount) <= 0) {
@@ -54,24 +124,44 @@ export function StakeCard({
       return
     }
 
-    if (Number.parseFloat(amount) > Number.parseFloat(walletBalance)) {
+    if (Number.parseFloat(amount) > Number.parseFloat(balance)) {
       setError("Insufficient balance")
       return
     }
 
     setError(null)
-    setIsStaking(true)
-
-    // Simulate staking process
-    setTimeout(() => {
-      setIsStaking(false)
+    
+    try {
+      // First approve tokens
+      setIsApproving(true)
+      const approveTx = await approveTokens(amount)
+      await approveTx.wait()
+      setIsApproving(false)
+      
+      // Then stake tokens
+      setIsStaking(true)
+      const stakeTx = await stakeTokens(amount)
+      await stakeTx.wait()
+      
+      // Update balance after staking
+      if (account) {
+        // Refresh the balance but don't set it directly here
+        // as it's managed by the wallet hook
+        await getTokenBalance(account);
+      }
+      
       setAmount("")
-      // Here you would update the staked balance
-    }, 2000)
+      setIsStaking(false)
+    } catch (error) {
+      console.error("Error staking tokens:", error)
+      setError("Transaction failed. Please try again.")
+      setIsApproving(false)
+      setIsStaking(false)
+    }
   }
 
   const handleMaxAmount = () => {
-    setAmount(walletBalance)
+    setAmount(balance)
   }
 
   return (
@@ -89,7 +179,7 @@ export function StakeCard({
           <div className="flex items-center">
             <TokenLogo symbol={tokenSymbol} />
             <div className="ml-3">
-              <p className="font-medium">{tokenSymbol}</p>
+              <p className="font-medium">{tokenName}</p>
               <p className="text-sm text-muted-foreground">${tokenPrice.toFixed(2)}</p>
             </div>
           </div>
@@ -106,7 +196,7 @@ export function StakeCard({
               </TooltipProvider>
             </p>
             <p className="text-sm text-muted-foreground">
-              Wallet Balance: {Number.parseFloat(walletBalance).toFixed(4)} {tokenSymbol}
+              Wallet Balance: {Number.parseFloat(balance).toFixed(4)} {tokenSymbol}
             </p>
           </div>
         </div>
@@ -119,7 +209,7 @@ export function StakeCard({
             <button
               onClick={handleMaxAmount}
               className="text-xs text-primary hover:underline"
-              disabled={!isWalletConnected || Number.parseFloat(walletBalance) <= 0}
+              disabled={!isConnected || Number.parseFloat(balance) <= 0}
             >
               MAX
             </button>
@@ -132,7 +222,7 @@ export function StakeCard({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="bg-slate-900 border-slate-700"
-              disabled={!isWalletConnected || isStaking}
+              disabled={!isConnected || isStaking || isApproving}
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium">{tokenSymbol}</div>
           </div>
@@ -142,14 +232,23 @@ export function StakeCard({
           )}
         </div>
       </CardContent>
-      <CardFooter>
-        <Button
-          onClick={handleStake}
-          className="w-full bg-primary hover:bg-primary/90 text-white"
-          disabled={!isWalletConnected || Number.parseFloat(walletBalance) <= 0 || isStaking}
-        >
-          {isStaking ? <LoadingSpinner /> : "Stake"}
-        </Button>
+      <CardFooter className="flex flex-col gap-2">
+        {!isConnected ? (
+          <Button
+            onClick={connect}
+            className="w-full bg-primary hover:bg-primary/90 text-white"
+          >
+            Connect Wallet
+          </Button>
+        ) : (
+          <Button
+            onClick={handleStake}
+            className="w-full bg-primary hover:bg-primary/90 text-white"
+            disabled={!isConnected || Number.parseFloat(balance) <= 0 || isStaking || isApproving}
+          >
+            {isApproving ? 'Approving...' : isStaking ? <LoadingSpinner /> : "Stake"}
+          </Button>
+        )}
       </CardFooter>
     </Card>
   )
