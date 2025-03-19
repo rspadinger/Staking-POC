@@ -2,6 +2,10 @@
 
 Smart contract that enables users to stake and withdraw a specific ERC20 token, featuring additional functionalities to enhance the staking experience. The contract automatically compounds rewards, includes customizable reward tiers based on staked amounts, and offers flexible parameters to fine-tune the staking process.
 
+## Demo Frontend for StakeFlow Staking DApp
+
+[StakeFlow Staking POC](https://staking-poc.vercel.app/)
+
 ## Dependencies
 
 Install the following tools:
