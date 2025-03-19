@@ -9,118 +9,25 @@ import { TooltipInfo } from "@/components/ui/tooltip-info"
 import { LoadingSpinner } from "@/components/staking/loading-spinner"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { 
-  getTokenBalance, 
-  connectWallet, 
-  hasEthereum, 
   approveTokens, 
   stakeTokens,
   getTokenName,
-  getTokenSymbol
+  getTokenSymbol,
+  getMinimumStakeAmount,
+  calculateAPR,
 } from "../../lib/contracts"
 import { useToast } from "@/hooks/use-toast"
 import { useStaking } from "@/lib/staking-context"
+import { useWallet } from "@/lib/wallet-context"
 
 interface StakeCardProps {
   tokenSymbol: string // Used as fallback
-  apr: number
   tokenPrice: number
   totalStaked: number
 }
 
-// Simple React hook for wallet connection
-const useWallet = () => {
-  const [account, setAccount] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [balance, setBalance] = useState("0");
-  const [isCheckingConnection, setIsCheckingConnection] = useState(true);
-
-  const connect = async () => {
-    try {
-      console.log("Manually connecting wallet...");
-      const { account } = await connectWallet();
-      setAccount(account);
-      setIsConnected(true);
-      
-      // Get initial balance
-      const balance = await getTokenBalance(account);
-      setBalance(balance);
-    } catch (error) {
-      console.error("Failed to connect wallet", error);
-    }
-  };
-
-  // Auto-connect if MetaMask is already connected
-  useEffect(() => {
-    const autoConnect = async () => {
-      setIsCheckingConnection(true);
-      if (hasEthereum()) {
-        try {
-          console.log("Checking for existing wallet connection...");
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const accounts = await (window.ethereum as any).request({ method: 'eth_accounts' });
-          
-          if (accounts && accounts.length > 0) {
-            console.log("Found connected account:", accounts[0]);
-            setAccount(accounts[0]);
-            setIsConnected(true);
-            
-            // Get initial balance
-            const balance = await getTokenBalance(accounts[0]);
-            setBalance(balance);
-          } else {
-            console.log("No connected accounts found");
-            setIsConnected(false);
-            setAccount(null);
-          }
-        } catch (error) {
-          console.error("Error auto-connecting wallet:", error);
-        } finally {
-          setIsCheckingConnection(false);
-        }
-      } else {
-        console.log("Ethereum provider not detected");
-        setIsCheckingConnection(false);
-      }
-    };
-
-    autoConnect();
-  }, []);
-
-  // Listen for account changes
-  useEffect(() => {
-    if (hasEthereum()) {
-      const handleAccountsChanged = (accounts: string[]) => {
-        if (accounts.length > 0) {
-          console.log("Account changed to:", accounts[0]);
-          setAccount(accounts[0]);
-          setIsConnected(true);
-          getTokenBalance(accounts[0]).then(setBalance);
-        } else {
-          console.log("Disconnected from wallet");
-          setIsConnected(false);
-          setAccount(null);
-          setBalance("0");
-        }
-      };
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window.ethereum as any).on('accountsChanged', handleAccountsChanged);
-
-      return () => {
-        if (hasEthereum()) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (window.ethereum as any).removeListener('accountsChanged', handleAccountsChanged);
-        }
-      };
-    }
-  }, []);
-
-  return { account, isConnected, isCheckingConnection, balance, connect };
-};
-
 export function StakeCard({
   tokenSymbol: fallbackSymbol,
-  apr,
   tokenPrice,
   totalStaked,
 }: StakeCardProps) {
@@ -128,25 +35,33 @@ export function StakeCard({
   const [isApproving, setIsApproving] = useState(false)
   const [isStaking, setIsStaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { account, isConnected, isCheckingConnection, balance, connect } = useWallet()
+  const { account, isConnected, isCheckingConnection, balance, connect, updateBalance } = useWallet()
   const { toast } = useToast()
-  const { refreshStakedBalance } = useStaking() // Use the staking context
+  const { refreshStakedBalance, stakedBalance } = useStaking()
   
   // State for token information
   const [tokenName, setTokenName] = useState<string>("Loading...")
   const [tokenSymbol, setTokenSymbol] = useState<string>(fallbackSymbol)
+  const [minimumStakeAmount, setMinimumStakeAmount] = useState<string>("0")
+  
+  // State for real APR
+  const [realApr, setRealApr] = useState<number>(0)
+  const [isLoadingApr, setIsLoadingApr] = useState<boolean>(false)
 
-  // Fetch token information when component mounts
+  // Fetch token information and minimum stake amount when component mounts
   useEffect(() => {
-    const fetchTokenInfo = async () => {
+    const fetchData = async () => {
       try {
-        const [name, symbol] = await Promise.all([
+        const [name, symbol, minAmount] = await Promise.all([
           getTokenName(),
-          getTokenSymbol()
+          getTokenSymbol(),
+          getMinimumStakeAmount()
         ]);
         
         setTokenName(name);
         setTokenSymbol(symbol || fallbackSymbol);
+        setMinimumStakeAmount(minAmount);
+        console.log("Minimum stake amount:", minAmount);
       } catch (error) {
         console.error("Error fetching token information:", error);
         // Fall back to prop values if fetching fails
@@ -154,8 +69,36 @@ export function StakeCard({
       }
     };
 
-    fetchTokenInfo();
+    fetchData();
   }, [fallbackSymbol]);
+  
+  // Calculate APR when staked balance or amount changes
+  useEffect(() => {
+    const updateAPR = async () => {
+      if (!account) {
+        setRealApr(0);
+        return;
+      }
+      
+      setIsLoadingApr(true);
+      try {
+        // Get user's current staked balance
+        const userStakedBalance = stakedBalance.toString();
+        
+        // Calculate APR based on current stake + new amount
+        const calculatedApr = await calculateAPR(userStakedBalance, amount);
+        setRealApr(calculatedApr);
+        console.log("Calculated APR:", calculatedApr, "for staked:", userStakedBalance, "amount:", amount);
+      } catch (error) {
+        console.error("Error calculating APR:", error);
+        setRealApr(0);
+      } finally {
+        setIsLoadingApr(false);
+      }
+    };
+    
+    updateAPR();
+  }, [account, amount, stakedBalance]);
 
   const handleStake = async () => {
     if (!amount || Number.parseFloat(amount) <= 0) {
@@ -165,6 +108,12 @@ export function StakeCard({
 
     if (Number.parseFloat(amount) > Number.parseFloat(balance)) {
       setError("Insufficient balance")
+      return
+    }
+
+    // Check if amount is greater than or equal to minimum stake amount
+    if (Number.parseFloat(amount) < Number.parseFloat(minimumStakeAmount)) {
+      setError(`Amount must be at least ${minimumStakeAmount} ${tokenSymbol}`)
       return
     }
 
@@ -217,9 +166,8 @@ export function StakeCard({
       // Update balance after staking
       if (account) {
         try {
-          // Refresh the wallet balance
-          const newBalance = await getTokenBalance(account);
-          console.log("Updated wallet balance after staking:", newBalance);
+          // Refresh the wallet balance using the updateBalance function
+          await updateBalance(account);
           
           // Refresh the staked balance using the context
           await refreshStakedBalance(account);
@@ -258,10 +206,12 @@ export function StakeCard({
     <Card className="w-full max-w-md border border-slate-700 bg-slate-800 shadow-lg">
       <CardHeader className="border-b border-slate-700">
         <CardTitle className="text-xl flex items-center justify-between">
-          <span>Stake {tokenSymbol}</span>
-          <span className="text-sm text-muted-foreground">
-            Total staked: {totalStaked.toFixed(2)} {tokenSymbol} (${(totalStaked * tokenPrice).toFixed(2)})
-          </span>
+          <div className="flex flex-col">
+            <span>Stake {tokenSymbol}</span>
+            <span className="text-sm text-muted-foreground">
+              Total staked: {totalStaked.toFixed(2)} {tokenSymbol} (${(totalStaked * tokenPrice).toFixed(2)})
+            </span>
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-6 space-y-4">
@@ -274,17 +224,28 @@ export function StakeCard({
             </div>
           </div>
           <div className="text-right">
-            <p className="font-medium flex items-center">
-              APR: {apr}%
+            <div className="font-medium flex items-center">
+              <span className="mr-1">APR:</span> {isLoadingApr ? (
+                <span className="ml-1 flex items-center">
+                  <LoadingSpinner /> calculating...
+                </span>
+              ) : (
+                <span>{ realApr.toFixed(2)}%</span>
+              )}
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger>
-                    <TooltipInfo content="Annual Percentage Rate based on current staking rewards" />
+                    <TooltipInfo content="Annual Percentage Rate based on current staking rewards and tier rates" />
                   </TooltipTrigger>
-                  <TooltipContent>Annual Percentage Rate based on current staking rewards</TooltipContent>
+                  <TooltipContent>
+                    <div>
+                      <p>Base APR + tier bonus based on your staked amount</p>
+                      <p>Staking more tokens may increase your APR tier!</p>
+                    </div>
+                  </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            </p>
+            </div>
             <p className="text-sm text-muted-foreground">
               Wallet Balance: {Number.parseFloat(balance).toFixed(2)} {tokenSymbol}
             </p>
@@ -295,6 +256,16 @@ export function StakeCard({
           <div className="flex justify-between items-center">
             <label htmlFor="stake-amount" className="text-sm font-medium">
               Amount to Stake
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <TooltipInfo content={`Minimum stake amount: ${minimumStakeAmount} ${tokenSymbol}`} />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Minimum stake amount: {minimumStakeAmount} {tokenSymbol}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </label>
             <button
               onClick={handleMaxAmount}
@@ -308,7 +279,7 @@ export function StakeCard({
             <Input
               id="stake-amount"
               type="number"
-              placeholder="0.0"
+              placeholder={`Min: ${minimumStakeAmount}`}
               value={amount}
               onChange={(e) => {
                 setAmount(e.target.value)
@@ -332,7 +303,7 @@ export function StakeCard({
             className="w-full bg-gray-600 hover:bg-gray-600 text-white cursor-wait" 
             disabled={true}
           >
-            <LoadingSpinner /> Checking wallet...
+            <span className="inline-flex items-center"><LoadingSpinner /><span className="ml-1">Checking wallet...</span></span>
           </Button>
         ) : !isConnected ? (
           <Button
@@ -351,7 +322,7 @@ export function StakeCard({
               className="w-full bg-primary hover:bg-primary/90 text-white"
               disabled={!isConnected || Number.parseFloat(balance) <= 0 || isStaking || isApproving || !amount || Number.parseFloat(amount) <= 0}
             >
-              {isApproving ? 'Approving...' : isStaking ? <LoadingSpinner /> : "Stake"}
+              {isApproving ? 'Approving...' : isStaking ? <span className="inline-flex items-center"><LoadingSpinner /><span className="ml-1">Staking...</span></span> : "Stake"}
             </Button>
           </>
         )}

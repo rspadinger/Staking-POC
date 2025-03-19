@@ -7,6 +7,8 @@ import { Header } from '@/components/layout/header'
 import { Footer } from '@/components/layout/footer'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/toaster'
+import { StakingProvider } from "@/lib/staking-context"
+import { WalletProvider } from "@/lib/wallet-context"
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -29,14 +31,18 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Web3Provider>
-            <Header />
-            <main className="flex-grow">
-              {children}
-            </main>
-            <Footer />
-            <Toaster />
-          </Web3Provider>
+          <WalletProvider>
+            <StakingProvider>
+              <Web3Provider>
+                <Header />
+                <main className="flex-grow">
+                  {children}
+                </main>
+                <Footer />
+                <Toaster />
+              </Web3Provider>
+            </StakingProvider>
+          </WalletProvider>
         </ThemeProvider>
       </body>
     </html>

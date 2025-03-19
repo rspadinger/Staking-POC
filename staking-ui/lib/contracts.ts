@@ -304,6 +304,62 @@ export const getPendingRewards = async (address: string): Promise<string> => {
 };
 
 /**
+ * Get early withdrawal penalty (in basis points - e.g., 500 = 5%)
+ */
+export const getEarlyWithdrawalPenalty = async (): Promise<number> => {
+  const contract = getStakingContract();
+  if (!contract) {
+    throw new Error('Staking contract not available');
+  }
+
+  try {
+    const penalty = await contract.earlyWithdrawalPenalty();
+    // Return as a number (already in basis points)
+    return Number(penalty);
+  } catch (error) {
+    console.error('Error getting early withdrawal penalty:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get lock period in days (converted from seconds)
+ */
+export const getLockPeriod = async (): Promise<number> => {
+  const contract = getStakingContract();
+  if (!contract) {
+    throw new Error('Staking contract not available');
+  }
+
+  try {
+    const lockPeriodSeconds = await contract.lockPeriod();
+    // Convert seconds to days
+    return Math.ceil(Number(lockPeriodSeconds) / (24 * 60 * 60));
+  } catch (error) {
+    console.error('Error getting lock period:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get minimum stake amount
+ */
+export const getMinimumStakeAmount = async (): Promise<string> => {
+  const contract = getStakingContract();
+  if (!contract) {
+    throw new Error('Staking contract not available');
+  }
+
+  try {
+    const minAmount = await contract.minimumStakeAmount();
+    return ethers.formatEther(minAmount);
+  } catch (error) {
+    console.error('Error getting minimum stake amount:', error);
+    throw error;
+  }
+};
+
+/**
  * Helper function to handle token operations with error handling
  */
 const executeTokenOperation = async <T>(
@@ -377,4 +433,123 @@ export const withdrawAllTokens = async (): Promise<ethers.TransactionResponse> =
       return await contract.withdrawAll();
     }
   );
+};
+
+/**
+ * Get annual reward rate from the staking contract (in basis points - e.g., 1000 = 10%)
+ */
+export const getAnnualRewardRate = async (): Promise<number> => {
+  const contract = getStakingContract();
+  if (!contract) {
+    throw new Error('Staking contract not available');
+  }
+
+  try {
+    const rate = await contract.annualRewardRate();
+    return Number(rate);
+  } catch (error) {
+    console.error('Error getting annual reward rate:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get tier reward rate for a specific amount
+ * This is a wrapper around the contract's internal getTierRewardRate function
+ */
+export const getTierRewardRate = async (amount: string): Promise<number> => {
+  const contract = getStakingContract();
+  if (!contract) {
+    throw new Error('Staking contract not available');
+  }
+
+  try {
+    // Since the contract's getTierRewardRate is internal, we need to check manually
+    const amountInWei = ethers.parseEther(amount);
+
+    // Get all tier thresholds and rates
+    const results = await Promise.all([
+      contract.tierThresholds(0),
+      contract.tierThresholds(1),
+      contract.tierThresholds(2),
+      contract.tierRewardRates(0),
+      contract.tierRewardRates(1),
+      contract.tierRewardRates(2)
+    ]);
+
+    const thresholds = results.slice(0, 3);
+    const rates = results.slice(3, 6);
+
+    // Replicate the contract's getTierRewardRate logic
+    if (amountInWei >= thresholds[2]) {
+      return Number(rates[2]);
+    } else if (amountInWei >= thresholds[1]) {
+      return Number(rates[1]);
+    } else if (amountInWei >= thresholds[0]) {
+      return Number(rates[0]);
+    } else {
+      return 0;
+    }
+  } catch (error) {
+    console.error('Error calculating tier reward rate:', error);
+    throw error;
+  }
+};
+
+/**
+ * Calculate the actual APR based on staked amount and amount to stake
+ * This combines the base annual reward rate and the tier reward rate
+ * Result is in percentage (e.g., 12.5 = 12.5%)
+ */
+export const calculateAPR = async (
+  stakedAmount: string, 
+  amountToStake: string = "0"
+): Promise<number> => {
+  try {
+    // Get base annual reward rate (in basis points)
+    const baseRate = await getAnnualRewardRate();
+    
+    // Calculate the total amount for tier determination
+    const totalAmountString = (
+      Number(stakedAmount || "0") + Number(amountToStake || "0")
+    ).toString();
+    
+    // Get tier reward rate for the total amount (in basis points)
+    const tierRate = await getTierRewardRate(totalAmountString);
+    
+    // Calculate total rate (base + tier) and convert from basis points to percentage
+    const totalRate = (baseRate + tierRate) / 100;
+    
+    return totalRate;
+  } catch (error) {
+    console.error('Error calculating APR:', error);
+    return 0; // Default to 0 on error
+  }
+};
+
+export async function getUserInfo(address: string) {
+  try {
+    const contract = await getStakingContract();
+    const userInfo = await contract.userInfo(address);
+    return {
+      weightedStartTime: Number(userInfo.weightedStartTime),
+      // Add other user info fields as needed
+    };
+  } catch (error) {
+    console.error("Error getting user info:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update wallet balance for a specific address
+ * Returns the new balance as a string
+ */
+export const updateWalletBalance = async (address: string): Promise<string> => {
+  try {
+    return await getTokenBalance(address);
+  } catch (error) {
+    console.error('Error updating wallet balance:', error);
+    throw error;
+  }
 }; 

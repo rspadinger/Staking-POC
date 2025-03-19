@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Wallet } from "lucide-react"
+import Image from 'next/image';
 
 export function Header() {
   const [isConnected, setIsConnected] = useState(false)
@@ -13,6 +14,9 @@ export function Header() {
   // Ensure we only render client-side components after hydration
   useEffect(() => {
     setMounted(true)
+
+    connectWallet()
+
   }, [])
 
   const connectWallet = async () => {
@@ -61,8 +65,16 @@ export function Header() {
     <header className="bg-secondary py-4 px-6 flex justify-between items-center">
       <div className="flex items-center">
         <Link href="/" className="text-white font-bold text-xl">
-          <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center mr-2">
-            <span className="text-secondary font-bold">S</span>
+          <div className="flex items-center">
+            <div className="w-42 h-10 mr-6 relative overflow-hidden rounded-md">
+              <Image
+                src="/logo.jpg"
+                alt="Logo"
+                fill
+                className="object-contain rounded-md opacity-90"
+                priority
+              />
+            </div>
           </div>
         </Link>
         <nav className="hidden md:flex ml-10 space-x-8">

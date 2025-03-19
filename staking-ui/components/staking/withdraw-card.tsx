@@ -8,35 +8,34 @@ import { TokenLogo } from "@/components/staking/token-logo"
 import { LoadingSpinner } from "@/components/staking/loading-spinner"
 import { AlertCircle, Info } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { getTokenName, getTokenSymbol, withdrawTokens } from "@/lib/contracts"
+import { getTokenName, getTokenSymbol, withdrawTokens, getUserInfo } from "@/lib/contracts"
 import { useStaking } from "@/lib/staking-context"
+import { useWallet } from "@/lib/wallet-context"
 import { useToast } from "@/hooks/use-toast"
 
 interface WithdrawCardProps {
   isWalletConnected: boolean
   tokenSymbol: string // Used as fallback
-  stakedBalance: number // This is now used as a fallback value
   tokenPrice: number
   earlyWithdrawalPenalty: number
   stakingDuration: number
-  timeStaked: number
   account?: string // Optional connected account
 }
 
 export function WithdrawCard({
   isWalletConnected,
   tokenSymbol: fallbackSymbol,
-  stakedBalance: fallbackStakedBalance,
   tokenPrice,
   earlyWithdrawalPenalty,
   stakingDuration,
-  timeStaked,
   account,
 }: WithdrawCardProps) {
   const [amount, setAmount] = useState<string>("")
   const [isWithdrawing, setIsWithdrawing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [timeStaked, setTimeStaked] = useState<number>(0)
   const { toast } = useToast()
+  const { updateBalance } = useWallet()
   
   // Use the staking context for real-time staked balance
   const { stakedBalance: contextStakedBalance, refreshStakedBalance } = useStaking()
@@ -46,11 +45,11 @@ export function WithdrawCard({
   const [tokenSymbol, setTokenSymbol] = useState<string>(fallbackSymbol)
   
   // Use either the context staked balance (real-time) or the fallback value
-  const stakedBalance = contextStakedBalance || fallbackStakedBalance
+  const stakedBalance = contextStakedBalance 
 
-  // Fetch token information when component mounts
+  // Fetch token information and user info when component mounts or account changes
   useEffect(() => {
-    const fetchTokenInfo = async () => {
+    const fetchData = async () => {
       try {
         const [name, symbol] = await Promise.all([
           getTokenName(),
@@ -59,15 +58,25 @@ export function WithdrawCard({
         
         setTokenName(name);
         setTokenSymbol(symbol || fallbackSymbol);
+
+        // Fetch user info if wallet is connected
+        if (isWalletConnected && account) {
+          const userInfo = await getUserInfo(account);
+          const now = Math.floor(Date.now() / 1000); // Convert to seconds
+          const timeStakedInSeconds = now - userInfo.weightedStartTime;
+          console.log("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz: ", timeStakedInSeconds)
+          const timeStakedInDays = Math.floor(timeStakedInSeconds / (24 * 60 * 60)); // Convert to days
+          setTimeStaked(Math.max(0, timeStakedInDays)); // Ensure we don't show negative days
+        }
       } catch (error) {
-        console.error("Error fetching token information:", error);
+        console.error("Error fetching data:", error);
         // Fall back to prop values if fetching fails
         setTokenSymbol(fallbackSymbol);
       }
     };
 
-    fetchTokenInfo();
-  }, [fallbackSymbol]);
+    fetchData();
+  }, [fallbackSymbol, isWalletConnected, account]);
   
   // Refresh staked balance when the component mounts or account changes
   useEffect(() => {
@@ -115,9 +124,12 @@ export function WithdrawCard({
         variant: "default",
       });
 
-      // Refresh staked balance after withdrawal
+      // Refresh both staked balance and wallet balance after withdrawal
       if (account) {
-        await refreshStakedBalance(account);
+        await Promise.all([
+          refreshStakedBalance(account),
+          updateBalance(account)
+        ]);
       }
       
       setAmount("");
@@ -250,7 +262,7 @@ export function WithdrawCard({
             !isWalletConnected || stakedBalance <= 0 || isWithdrawing || !amount || Number.parseFloat(amount) <= 0
           }
         >
-          {isWithdrawing ? <LoadingSpinner /> : "Withdraw"}
+          {isWithdrawing ? <span className="inline-flex items-center"><LoadingSpinner /><span className="ml-1">Withdrawing...</span></span> : "Withdraw"}
         </Button>
       </CardFooter>
     </Card>

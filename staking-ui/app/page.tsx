@@ -3,7 +3,14 @@
 import { useState, useEffect } from "react"
 import { StakeCard } from "@/components/staking/stake-card"
 import { WithdrawCard } from "@/components/staking/withdraw-card"
-import { connectWallet, hasEthereum, getTokenName, getTokenSymbol } from "@/lib/contracts"
+import { 
+  connectWallet, 
+  hasEthereum, 
+  getTokenName, 
+  getTokenSymbol, 
+  getEarlyWithdrawalPenalty,
+  getLockPeriod
+} from "@/lib/contracts"
 import { StakingProvider } from "@/lib/staking-context"
 
 export default function StakingPage() {
@@ -13,39 +20,49 @@ export default function StakingPage() {
   const [tokenName, setTokenName] = useState<string>("Loading Token")
   const [tokenSymbol, setTokenSymbol] = useState<string>("TOKEN")
   const [account, setAccount] = useState<string>("")
+  const [earlyWithdrawalPenalty, setEarlyWithdrawalPenalty] = useState<number>(0)
+  const [stakingDuration, setStakingDuration] = useState<number>(0)
 
-  // Mock data - in a real app, this would come from your blockchain connection
+  // Mock data - we'll replace earlyWithdrawalPenalty and stakingDuration with real values
   const tokenData = {
-    symbol: "TOKEN", // This will be replaced with actual symbol
+    symbol: "TOKEN",
     price: 1.25,
-    apr: 12.5,
-    stakedBalance: 50,
     totalStaked: 1250000,
-    earlyWithdrawalPenalty: 3,
-    stakingDuration: 30,
     timeStaked: 15, // days
   }
 
-  // Fetch token information
+  // Fetch token information and contract parameters
   useEffect(() => {
-    const fetchTokenInfo = async () => {
+    const fetchContractData = async () => {
       if (mounted) {
         try {
-          const [name, symbol] = await Promise.all([
+          const [name, symbol, penalty, lockPeriod] = await Promise.all([
             getTokenName(),
-            getTokenSymbol()
+            getTokenSymbol(),
+            getEarlyWithdrawalPenalty(),
+            getLockPeriod()
           ]);
           
           setTokenName(name);
           setTokenSymbol(symbol || tokenData.symbol);
-          console.log("Token info loaded:", { name, symbol });
+          
+          // Set real values from contract
+          setEarlyWithdrawalPenalty(penalty / 100); // Convert basis points to percentage
+          setStakingDuration(lockPeriod);
+          
+          console.log("Contract data loaded:", { 
+            name, 
+            symbol, 
+            earlyWithdrawalPenalty: penalty / 100, 
+            stakingDuration: lockPeriod 
+          });
         } catch (error) {
-          console.error("Error fetching token information in page:", error);
+          console.error("Error fetching contract data:", error);
         }
       }
     };
 
-    fetchTokenInfo();
+    fetchContractData();
   }, [mounted]);
 
   // Check wallet connection status
@@ -155,8 +172,8 @@ export default function StakingPage() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold mb-2">Staking</h1>
             <p className="text-muted-foreground">
-              You can stake {tokenSymbol} ({tokenName}) and earn rewards. A {tokenData.earlyWithdrawalPenalty}% penalty applies for
-              early withdrawals (before {tokenData.stakingDuration} days).
+              You can stake {tokenSymbol} ({tokenName}) and earn rewards. A {earlyWithdrawalPenalty}% penalty applies for
+              early withdrawals (before {stakingDuration} days).
             </p>
             {isCheckingConnection && (
               <p className="text-sm text-muted-foreground mt-2">
@@ -167,8 +184,7 @@ export default function StakingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <StakeCard
-              tokenSymbol={tokenSymbol}
-              apr={tokenData.apr}
+              tokenSymbol={tokenSymbol}              
               tokenPrice={tokenData.price}
               totalStaked={tokenData.totalStaked}
             />
@@ -176,10 +192,9 @@ export default function StakingPage() {
             <WithdrawCard
               isWalletConnected={isWalletConnected}
               tokenSymbol={tokenSymbol}
-              stakedBalance={tokenData.stakedBalance}
               tokenPrice={tokenData.price}
-              earlyWithdrawalPenalty={tokenData.earlyWithdrawalPenalty}
-              stakingDuration={tokenData.stakingDuration}
+              earlyWithdrawalPenalty={earlyWithdrawalPenalty}
+              stakingDuration={stakingDuration}
               timeStaked={tokenData.timeStaked}
               account={account}
             />

@@ -3,9 +3,10 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "hardhat/console.sol";
 
 contract Staking is Ownable {
-    uint256 public constant BASE = 1000; //100%
+    uint256 public constant BASE = 10000; //100%
     uint256 public constant SECONDS_PER_YEAR = 365 * 24 * 60 * 60; //31536000
 
     IERC20 public stakingToken;
@@ -85,6 +86,7 @@ contract Staking is Ownable {
         //careful : this assumes our StakingToken has 18 decimals => adjust this for all tokens !
         uint256 adjustedRate = ((annualRewardRate + tierRate) * 1e18) / (SECONDS_PER_YEAR * BASE);
         uint256 totalRewards = (adjustedRate * timeStaked * user.totalStaked) / 1e18;
+
         return totalRewards;
     }
 
@@ -154,7 +156,9 @@ contract Staking is Ownable {
         if (pending > 0) {
             // Update weighted start time to reflect new total
             uint256 totalWeight = (user.totalStaked * user.weightedStartTime) + (pending * block.timestamp);
-            user.weightedStartTime = totalWeight / (user.totalStaked + pending);
+
+            //auto compound should not have an effect on weightedStartTime
+            //user.weightedStartTime = totalWeight / (user.totalStaked + pending);
 
             user.totalStaked += pending;
         }
