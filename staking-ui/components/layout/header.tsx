@@ -43,13 +43,22 @@ export function Header() {
     return (
       <header className="bg-secondary py-4 px-6 flex justify-between items-center">
         <div className="flex items-center">
-          <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center mr-2">
+          {/* <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center mr-2">
             <span className="text-secondary font-bold">S</span>
+          </div> */}
+          <div className="w-42 h-10 mr-6 relative overflow-hidden rounded-md">
+            <Image
+              src="/logo.jpg"
+              alt="Logo"
+              fill
+              className="object-contain rounded-md opacity-90"
+              priority
+            />
           </div>
           <nav className="hidden md:flex ml-10 space-x-8">
-            <span className="text-white">Dashboard</span>
+            {/* <span className="text-white">Dashboard</span> */}
             <span className="text-white border-b-2 border-primary">Stake</span>
-            <span className="text-white">Rewards</span>
+            {/* <span className="text-white">Rewards</span> */}
             <span className="text-white">Governance</span>
           </nav>
         </div>
@@ -78,15 +87,15 @@ export function Header() {
           </div>
         </Link>
         <nav className="hidden md:flex ml-10 space-x-8">
-          <Link href="/" className="text-white hover:text-primary transition-colors">
+          {/* <Link href="/" className="text-white hover:text-primary transition-colors">
             Dashboard
-          </Link>
-          <Link href="/stake" className="text-white hover:text-primary transition-colors border-b-2 border-primary">
+          </Link> */}
+          <Link href="/" className="text-white hover:text-primary transition-colors border-b-2 border-primary">
             Stake
           </Link>
-          <Link href="/rewards" className="text-white hover:text-primary transition-colors">
+          {/* <Link href="/rewards" className="text-white hover:text-primary transition-colors">
             Rewards
-          </Link>
+          </Link> */}
           <Link href="/governance" className="text-white hover:text-primary transition-colors">
             Governance
           </Link>
